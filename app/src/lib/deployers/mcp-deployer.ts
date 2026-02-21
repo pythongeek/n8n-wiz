@@ -1,4 +1,5 @@
 import type { N8nWorkflow, DeploymentResult, TestResult } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 interface MCPResponse {
   success: boolean;
@@ -9,13 +10,30 @@ interface MCPResponse {
 export class MCPDeployer {
   private serverUrl: string;
   private apiKey: string;
+  private deploymentMode: string;
 
   constructor() {
     this.serverUrl = import.meta.env.VITE_MCP_SERVER_URL || '';
     this.apiKey = import.meta.env.VITE_MCP_API_KEY || '';
+    this.deploymentMode = import.meta.env.VITE_DEPLOYMENT_MODE || 'vercel';
   }
 
-  async deploy(workflow: N8nWorkflow): Promise<DeploymentResult> {
+  async deploy(workflow: N8nWorkflow, localWorkflowId?: string): Promise<DeploymentResult> {
+    // Check if we're in Vercel-only mode (no local n8n)
+    if (this.deploymentMode === 'vercel' && !this.serverUrl) {
+      // In Vercel-only mode, we just save to Supabase and mark as "ready to deploy"
+      if (localWorkflowId) {
+        await this.logDeployment(localWorkflowId, 'mcp-bridge', null, 'pending', 
+          'Local n8n not configured. Workflow saved and ready for manual deployment.');
+      }
+      
+      return {
+        success: true,
+        method: 'vercel-storage',
+        message: `Workflow "${workflow.name}" saved to cloud storage. Configure local n8n to deploy.`,
+      };
+    }
+
     if (!this.serverUrl) {
       return {
         success: false,
@@ -32,6 +50,10 @@ export class MCPDeployer {
       });
 
       if (!createResult.success) {
+        if (localWorkflowId) {
+          await this.logDeployment(localWorkflowId, 'mcp-bridge', null, 'failed', createResult.error);
+        }
+        
         return {
           success: false,
           method: 'mcp',
@@ -50,11 +72,20 @@ export class MCPDeployer {
         // Try to clean up the created workflow
         await this.callTool('delete_workflow', { id: workflowId });
         
+        if (localWorkflowId) {
+          await this.logDeployment(localWorkflowId, 'mcp-bridge', this.serverUrl, 'failed', activateResult.error);
+        }
+        
         return {
           success: false,
           method: 'mcp',
           error: `Failed to activate workflow: ${activateResult.error}`,
         };
+      }
+
+      // Log successful deployment
+      if (localWorkflowId) {
+        await this.logDeployment(localWorkflowId, 'mcp-bridge', `${this.serverUrl}/workflow/${workflowId}`, 'success');
       }
 
       return {
@@ -64,11 +95,41 @@ export class MCPDeployer {
         message: `Workflow "${workflow.name}" deployed and activated via MCP bridge`,
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown MCP deployment error';
+      
+      if (localWorkflowId) {
+        await this.logDeployment(localWorkflowId, 'mcp-bridge', null, 'failed', errorMessage);
+      }
+      
       return {
         success: false,
         method: 'mcp',
-        error: error instanceof Error ? error.message : 'Unknown MCP deployment error',
+        error: errorMessage,
       };
+    }
+  }
+
+  /**
+   * Log deployment to Supabase
+   */
+  private async logDeployment(
+    workflowId: string, 
+    method: string, 
+    targetUrl: string | null, 
+    status: string, 
+    errorMessage?: string
+  ): Promise<void> {
+    try {
+      await supabase.from('deployment_logs').insert([{
+        workflow_id: workflowId,
+        deployment_method: method,
+        target_url: targetUrl,
+        status,
+        error_message: errorMessage,
+        deployed_at: new Date().toISOString()
+      }]);
+    } catch (error) {
+      console.error('Failed to log deployment:', error);
     }
   }
 
