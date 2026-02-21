@@ -1,0 +1,674 @@
+openapi: 3.0.3
+info:
+  title: n8n Agent Dashboard API
+  description: |
+    API specification for the n8n Agent Dashboard - a self-feeding workflow automation platform.
+    
+    This API provides endpoints for:
+    - Workflow generation using AI (Kimi 2.5, Gemini 2.5)
+    - Workflow deployment via MCP Bridge or Browser Automation
+    - Execution monitoring and management
+    - Knowledge base operations
+    
+    ## Authentication
+    
+    All API endpoints require authentication via Bearer token:
+    ```
+    Authorization: Bearer your-api-token
+    ```
+    
+    ## Deployment Modes
+    
+    - **MCP Bridge**: Direct API integration with n8n (recommended)
+    - **Browser Automation**: Playwright-based browser automation (fallback)
+  version: 1.0.0
+  contact:
+    name: n8n Agent Dashboard Team
+    email: support@yourdomain.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://your-app.vercel.app/api
+    description: Production server
+  - url: http://localhost:5173/api
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Workflows
+    description: Workflow generation and management
+  - name: Deployment
+    description: Deploy workflows to n8n
+  - name: Execution
+    description: Monitor and manage workflow executions
+  - name: Knowledge
+    description: Knowledge base and self-feeding operations
+  - name: Health
+    description: Health checks and system status
+
+paths:
+  /workflows/generate:
+    post:
+      summary: Generate a new workflow using AI
+      description: |
+        Generates a complete n8n workflow JSON using either Kimi 2.5 or Gemini 2.5
+        based on the complexity of the request.
+      tags:
+        - Workflows
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowGenerationRequest'
+            examples:
+              customerSupport:
+                summary: Customer support bot
+                value:
+                  prompt: "Create a workflow that monitors Slack for support requests, uses AI to generate responses, and escalates complex issues"
+                  category: "customer-support"
+                  preferredModel: "auto"
+      responses:
+        '200':
+          description: Workflow generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowGenerationResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Generation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workflows/{id}:
+    get:
+      summary: Get workflow by ID
+      description: Retrieve a workflow from the database
+      tags:
+        - Workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Workflow found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRecord'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete workflow
+      description: Delete a workflow from the database and n8n
+      tags:
+        - Workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Workflow deleted
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workflows/list:
+    get:
+      summary: List all workflows
+      description: Get a paginated list of workflows
+      tags:
+        - Workflows
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, testing, deployed, failed, archived]
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkflowRecord'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  /deploy/mcp:
+    post:
+      summary: Deploy workflow via MCP Bridge
+      description: Deploy a workflow to n8n using the MCP Bridge (recommended method)
+      tags:
+        - Deployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workflow:
+                  $ref: '#/components/schemas/N8nWorkflow'
+      responses:
+        '200':
+          description: Deployment result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentResult'
+        '500':
+          description: Deployment failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /deploy/browser:
+    post:
+      summary: Deploy workflow via Browser Automation
+      description: Deploy a workflow to n8n using Playwright browser automation (fallback method)
+      tags:
+        - Deployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workflow:
+                  $ref: '#/components/schemas/N8nWorkflow'
+      responses:
+        '200':
+          description: Deployment result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentResult'
+        '500':
+          description: Deployment failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /execute/{workflowId}:
+    post:
+      summary: Execute a workflow
+      description: Trigger execution of a deployed workflow
+      tags:
+        - Execution
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Execution data to pass to the workflow
+      responses:
+        '200':
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResult'
+
+  /execute/{workflowId}/status:
+    get:
+      summary: Get execution status
+      description: Get the status of a workflow execution
+      tags:
+        - Execution
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionLog'
+
+  /monitor/stats:
+    get:
+      summary: Get dashboard statistics
+      description: Get aggregated statistics for the dashboard
+      tags:
+        - Execution
+      responses:
+        '200':
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+
+  /monitor/executions:
+    get:
+      summary: Get recent executions
+      description: Get a list of recent workflow executions
+      tags:
+        - Execution
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: workflowId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of executions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExecutionLog'
+
+  /knowledge/patterns:
+    get:
+      summary: Get learned patterns
+      description: Retrieve patterns learned from workflow executions
+      tags:
+        - Knowledge
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [success_pattern, error_pattern, optimization]
+        - name: workflowId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of knowledge entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/KnowledgeEntry'
+
+  /knowledge/insights:
+    get:
+      summary: Get AI-generated insights
+      description: Get insights and recommendations from the knowledge base
+      tags:
+        - Knowledge
+      responses:
+        '200':
+          description: List of insights
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                    description:
+                      type: string
+                    type:
+                      type: string
+                    confidence:
+                      type: number
+
+  /health:
+    get:
+      summary: Health check
+      description: Check the health of all system components
+      tags:
+        - Health
+      security: []
+      responses:
+        '200':
+          description: System health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded, unhealthy]
+                  components:
+                    type: object
+                    properties:
+                      dashboard:
+                        type: string
+                        enum: [ok, error]
+                      n8n:
+                        type: string
+                        enum: [ok, error]
+                      mcp:
+                        type: string
+                        enum: [ok, error, disabled]
+                      browser:
+                        type: string
+                        enum: [ok, error, disabled]
+                      database:
+                        type: string
+                        enum: [ok, error]
+                  timestamp:
+                    type: string
+                    format: date-time
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    N8nWorkflow:
+      type: object
+      required:
+        - name
+        - nodes
+        - connections
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 100
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/N8nNode'
+        connections:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/N8nConnection'
+        settings:
+          type: object
+          properties:
+            executionOrder:
+              type: string
+              enum: [v1, v0]
+            saveManualExecutions:
+              type: boolean
+            callerPolicy:
+              type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    N8nNode:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - position
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+        position:
+          type: array
+          items:
+            type: number
+          minItems: 2
+          maxItems: 2
+        parameters:
+          type: object
+        credentials:
+          type: object
+        typeVersion:
+          type: number
+
+    N8nConnection:
+      type: object
+      required:
+        - node
+        - type
+        - index
+      properties:
+        node:
+          type: string
+        type:
+          type: string
+        index:
+          type: number
+
+    WorkflowGenerationRequest:
+      type: object
+      required:
+        - prompt
+        - category
+      properties:
+        prompt:
+          type: string
+          description: Natural language description of the workflow to generate
+          minLength: 10
+          maxLength: 2000
+        category:
+          type: string
+          enum: [customer-support, content-generation, marketing, social-media, data-processing, competitive-intelligence, system-health, custom]
+        preferredModel:
+          type: string
+          enum: [kimi, gemini, auto]
+          default: auto
+
+    WorkflowGenerationResponse:
+      type: object
+      properties:
+        workflow:
+          $ref: '#/components/schemas/N8nWorkflow'
+        modelUsed:
+          type: string
+        reasoning:
+          type: string
+        dbId:
+          type: string
+          format: uuid
+
+    WorkflowRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        status:
+          type: string
+          enum: [draft, testing, deployed, failed, archived]
+        version:
+          type: integer
+        n8n_workflow_id:
+          type: string
+        deployment_method:
+          type: string
+          enum: [mcp, browser-automation]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DeploymentResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        method:
+          type: string
+          enum: [mcp, browser-automation]
+        n8nWorkflowId:
+          type: string
+        message:
+          type: string
+        error:
+          type: string
+
+    ExecutionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        executionId:
+          type: string
+        executionData:
+          type: object
+        error:
+          type: string
+        durationMs:
+          type: integer
+
+    ExecutionLog:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        n8n_execution_id:
+          type: string
+        status:
+          type: string
+          enum: [success, error, waiting]
+        execution_data:
+          type: object
+        error_message:
+          type: string
+        duration_ms:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    KnowledgeEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        pattern_type:
+          type: string
+          enum: [success_pattern, error_pattern, optimization]
+        context:
+          type: string
+        outcome:
+          type: string
+          enum: [success, failure, partial]
+        error_logs:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    DashboardStats:
+      type: object
+      properties:
+        totalWorkflows:
+          type: integer
+        deployedWorkflows:
+          type: integer
+        successRate:
+          type: number
+        averageExecutionTime:
+          type: number
+        totalExecutions:
+          type: integer
+        aiCostToday:
+          type: number
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: object

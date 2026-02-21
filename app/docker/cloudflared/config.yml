@@ -1,0 +1,41 @@
+# Cloudflare Tunnel Configuration
+# Place this file at ~/.cloudflared/config.yml on your host
+# Or use environment variable TUNNEL_TOKEN in docker-compose.yml
+
+tunnel: your-tunnel-id
+credentials-file: /home/user/.cloudflared/your-tunnel-id.json
+
+# Ingress rules - map hostnames to local services
+ingress:
+  # n8n Web UI and API
+  - hostname: n8n.yourdomain.com
+    service: http://localhost:5678
+    originRequest:
+      noTLSVerify: true
+
+  # MCP Bridge API
+  - hostname: mcp.yourdomain.com
+    service: http://localhost:3001
+    originRequest:
+      noTLSVerify: true
+
+  # Browser Automation API
+  - hostname: browser.yourdomain.com
+    service: http://localhost:3002
+    originRequest:
+      noTLSVerify: true
+
+  # Default fallback
+  - service: http_status:404
+
+# Additional configuration
+protocol: http2
+
+# Logging
+loglevel: info
+
+# Transport settings
+transport-loglevel: warn
+
+# Metrics (optional)
+metrics: localhost:45678
