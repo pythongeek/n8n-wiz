@@ -3,9 +3,9 @@
   "version": 2,
   "name": "n8n-agent-dashboard",
   "framework": null,
-  "buildCommand": "npm install && npm run build",
+  "buildCommand": "npm run build:debug",
   "outputDirectory": "dist",
-  "installCommand": "npm install",
+  "installCommand": "npm ci",
   "regions": ["iad1"],
   "env": {
     "VITE_SUPABASE_URL": "@supabase-url",
